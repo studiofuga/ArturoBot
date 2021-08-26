@@ -6,6 +6,7 @@ from telegram.ext import Updater
 import logging
 import arturo_conf
 import tweepy
+import sys
 
 
 class Arturo:
@@ -47,9 +48,22 @@ class Arturo:
     def timeline(self,update : telegram.Update, context : telegram.ext.CallbackContext):
         if not self._check_twitter(update, context):
             return
-        tweets = self.twitter.home_timeline(count=5)
+        tweets = self.twitter.home_timeline(count=5, tweet_mode="extended")
         for tweet in tweets:
-            context.bot.send_message(chat_id=update.effective_chat.id, text="From {}: {}".format(tweet.user.name, tweet.text))
+            context.bot.send_message(chat_id=update.effective_chat.id, text="From {}: {}".format(tweet.user.name, tweet.full_text))
+
+    def _download_media(self,update : telegram.Update, context : telegram.ext.CallbackContext, entities):
+        for media in entities["media"]:
+            try:
+                if media["type"] == "video":
+                    for variant in media["video_info"]["variants"]:
+                        if variant["content_type"] == "video/mp4":
+                            context.bot.send_message(chat_id=update.effective_chat.id, text="video: {}".format(variant["url"]))
+                            return 1
+            except:
+                pass
+
+        return 0
 
     def cmd_get(self,update : telegram.Update, context : telegram.ext.CallbackContext):
         if not self._check_twitter(update, context):
@@ -60,26 +74,30 @@ class Arturo:
 
         try:
             id = int(context.args[0])
-            tweet = self.twitter.get_status(id)
-            logging.log(level=logging.DEBUG, msg="Response: ".format(tweet))
+            tweet = self.twitter.get_status(id, tweet_mode="extended")
+            logging.log(level=logging.INFO, msg="Tweet: {}".format(tweet._json))
             context.bot.send_message(chat_id=update.effective_chat.id, text="From: {}\n{}"
-                                     .format(tweet.user.name, tweet.text))
+                                     .format(tweet.user.name, tweet.full_text))
 
-            if "media" in tweet.entities:
-                context.bot.send_message(chat_id=update.effective_chat.id, text="There are: {} media".format(
-                    len(tweet.entities.media)))
-                for media in tweet.entities.media:
-                    context.bot.send_message(chat_id=update.effective_chat.id, text="url: ".format(media.media_url))
+            count = 0
+            if hasattr(tweet, 'extended_entities'):
+                if "media" in tweet.extended_entities:
+                    context.bot.send_message(chat_id=update.effective_chat.id, text="There are: {} native media".format(
+                        len(tweet.extended_entities["media"])))
+                    count = self._download_media(update, context, tweet.extended_entities)
 
-            if "extended_entities" in tweet and "media" in tweet.extended_entities:
-                context.bot.send_message(chat_id=update.effective_chat.id, text="There are: {} native media".format(
-                    len(tweet.entities.media)))
-                for media in tweet.entities.media:
-                    context.bot.send_message(chat_id=update.effective_chat.id, text="url: ".format(media.media_url))
+            if count == 0:
+                if hasattr(tweet, 'entities'):
+                    if "media" in tweet.entities:
+                        context.bot.send_message(chat_id=update.effective_chat.id, text="There are: {} media".format(
+                            len(tweet.entities["media"])))
+                        count = self._download_media(update, context, tweet.entities)
 
         except Exception as x:
             msg = "An error occurred: {}".format(x)
             logging.log(level=logging.ERROR, msg=msg)
+            logging.log(level=logging.ERROR, msg='Error on line {} {} {}'.format(sys.exc_info()[-1].tb_lineno, type(x).__name__, x))
+
             context.bot.send_message(chat_id=update.effective_chat.id, text=msg)
 
 

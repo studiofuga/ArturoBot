@@ -17,6 +17,7 @@ class Arturo:
         self.dispatcher.add_handler(telegram.ext.CommandHandler('start', self.start))
         self.dispatcher.add_handler(telegram.ext.CommandHandler('connect', self.connect))
         self.dispatcher.add_handler(telegram.ext.CommandHandler('timeline', self.timeline))
+        self.dispatcher.add_handler(telegram.ext.CommandHandler('get', self.cmd_get))
 
         self.twitter_avail = False
 
@@ -49,6 +50,37 @@ class Arturo:
         tweets = self.twitter.home_timeline(count=5)
         for tweet in tweets:
             context.bot.send_message(chat_id=update.effective_chat.id, text="From {}: {}".format(tweet.user.name, tweet.text))
+
+    def cmd_get(self,update : telegram.Update, context : telegram.ext.CallbackContext):
+        if not self._check_twitter(update, context):
+            return
+        if len(context.args) !=1 :
+            context.bot.send_message(chat_id=update.effective_chat.id, text="Format: /get tweet-id")
+            return
+
+        try:
+            id = int(context.args[0])
+            tweet = self.twitter.get_status(id)
+            logging.log(level=logging.DEBUG, msg="Response: ".format(tweet))
+            context.bot.send_message(chat_id=update.effective_chat.id, text="From: {}\n{}"
+                                     .format(tweet.user.name, tweet.text))
+
+            if "media" in tweet.entities:
+                context.bot.send_message(chat_id=update.effective_chat.id, text="There are: {} media".format(
+                    len(tweet.entities.media)))
+                for media in tweet.entities.media:
+                    context.bot.send_message(chat_id=update.effective_chat.id, text="url: ".format(media.media_url))
+
+            if "extended_entities" in tweet and "media" in tweet.extended_entities:
+                context.bot.send_message(chat_id=update.effective_chat.id, text="There are: {} native media".format(
+                    len(tweet.entities.media)))
+                for media in tweet.entities.media:
+                    context.bot.send_message(chat_id=update.effective_chat.id, text="url: ".format(media.media_url))
+
+        except Exception as x:
+            msg = "An error occurred: {}".format(x)
+            logging.log(level=logging.ERROR, msg=msg)
+            context.bot.send_message(chat_id=update.effective_chat.id, text=msg)
 
 
     def run(self):

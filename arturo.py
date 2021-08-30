@@ -1,12 +1,18 @@
 """
 Bot Arturo - A Telegram bot to control Social Networks bots
 """
+import os
+
 import telegram.ext
 from telegram.ext import Updater
 import logging
 import arturo_conf
 import tweepy
 import sys
+import requests
+import tempfile
+from PIL import Image
+import pytesseract
 
 
 class Arturo:
@@ -52,18 +58,44 @@ class Arturo:
         for tweet in tweets:
             context.bot.send_message(chat_id=update.effective_chat.id, text="From {}: {}".format(tweet.user.name, tweet.full_text))
 
-    def _download_media(self,update : telegram.Update, context : telegram.ext.CallbackContext, entities):
+    def _download(self, url, outfile, delete : bool = True):
+        logging.log(logging.INFO, "Downloading: {}".format(url))
+        r = requests.get(url, allow_redirects=True)
+        outfile.write(r.content)
+        outfile.close()
+
+    def _download_media(self,update : telegram.Update, context : telegram.ext.CallbackContext, entities, delete : bool = True):
         for media in entities["media"]:
             try:
-                if media["type"] == "video":
+                type = media["type"]
+                if type == "video":
                     for variant in media["video_info"]["variants"]:
                         if variant["content_type"] == "video/mp4":
-                            context.bot.send_message(chat_id=update.effective_chat.id, text="video: {}".format(variant["url"]))
-                            return 1
+                            url = variant["url"]
+                            break
+                elif type == "photo":
+                    url = media["media_url"]
+                try:
+                    outfile = tempfile.NamedTemporaryFile(mode='wb', delete=False)
+                    filename = outfile.name
+                    self._download(url, outfile, delete=delete)
+                    logging.log(logging.INFO, "File Size: {}".format(os.path.getsize(filename)))
+                    infile = open(filename, mode='rb')
+                    context.bot.send_video(chat_id=update.effective_chat.id,
+                                           caption="file: {}".format(filename),
+                                           video=infile)
+                    if delete:
+                        os.remove(filename)
+                    else:
+                        return (type, filename)
+                except Exception as x:
+                    logging.log(logging.ERROR, "Failed downloading: {}".format(x))
+                    context.bot.send_message(chat_id=update.effective_chat.id, text="video: {}".format(url))
+                return (type,url)
             except:
                 pass
 
-        return 0
+        return None
 
     def cmd_get(self,update : telegram.Update, context : telegram.ext.CallbackContext):
         if not self._check_twitter(update, context):
@@ -84,14 +116,24 @@ class Arturo:
                 if "media" in tweet.extended_entities:
                     context.bot.send_message(chat_id=update.effective_chat.id, text="There are: {} native media".format(
                         len(tweet.extended_entities["media"])))
-                    count = self._download_media(update, context, tweet.extended_entities)
+                    info = self._download_media(update, context, tweet.extended_entities, delete = False)
+                    if info is not None:
+                        count = 1
+                        if info[0] == "photo":
+                            image = Image.open(info[1])
+                            text = pytesseract.image_to_string(image=image)
+                            context.bot.send_message(chat_id=update.effective_chat.id, text="Image text: {}"
+                                                     .format(text))
+
 
             if count == 0:
                 if hasattr(tweet, 'entities'):
                     if "media" in tweet.entities:
                         context.bot.send_message(chat_id=update.effective_chat.id, text="There are: {} media".format(
                             len(tweet.entities["media"])))
-                        count = self._download_media(update, context, tweet.entities)
+                        filename = self._download_media(update, context, tweet.entities)
+                        if filename is not None:
+                            count = 1
 
         except Exception as x:
             msg = "An error occurred: {}".format(x)

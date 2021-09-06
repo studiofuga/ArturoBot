@@ -25,6 +25,7 @@ class Arturo:
         self.dispatcher.add_handler(telegram.ext.CommandHandler('connect', self.connect))
         self.dispatcher.add_handler(telegram.ext.CommandHandler('timeline', self.timeline))
         self.dispatcher.add_handler(telegram.ext.CommandHandler('get', self.cmd_get))
+        self.dispatcher.add_handler(telegram.ext.CommandHandler('follow', self.cmd_follow))
 
         self.twitter_avail = False
 
@@ -141,6 +142,26 @@ class Arturo:
             logging.log(level=logging.ERROR, msg='Error on line {} {} {}'.format(sys.exc_info()[-1].tb_lineno, type(x).__name__, x))
 
             context.bot.send_message(chat_id=update.effective_chat.id, text=msg)
+
+    def cmd_follow(self,update : telegram.Update, context : telegram.ext.CallbackContext):
+        if not self._check_twitter(update, context):
+            return
+        if len(context.args) !=1 :
+            context.bot.send_message(chat_id=update.effective_chat.id, text="Format: /follow UserName")
+            return
+        user = context.args[0]
+        if user[0] != "@":
+            user = "@" + user
+        try:
+            self.twitter.create_friendship(user)
+            context.bot.send_message(chat_id=update.effective_chat.id, text="User {} added to followers".format(user))
+        except Exception as x:
+            msg = "An error occurred: {}".format(x)
+            logging.log(level=logging.ERROR, msg=msg)
+            logging.log(level=logging.ERROR, msg='Error on line {} {} {}'.format(sys.exc_info()[-1].tb_lineno, type(x).__name__, x))
+
+            context.bot.send_message(chat_id=update.effective_chat.id, text=msg)
+
 
 
     def run(self):

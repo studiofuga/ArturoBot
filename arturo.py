@@ -185,6 +185,7 @@ class Arturo:
             context.bot.send_message(chat_id=update.effective_chat.id, text=msg)
 
     def cmd_follow(self,update : telegram.Update, context : telegram.ext.CallbackContext):
+        self._check_user(update)
         if not self._check_twitter(update, context):
             return
         if len(context.args) !=1 :

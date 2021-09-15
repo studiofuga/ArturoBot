@@ -13,10 +13,18 @@ import requests
 import tempfile
 from PIL import Image
 import pytesseract
+import Database
+import traceback
 
 
 class Arturo:
     def __init__(self):
+        try :
+            self.db = Database.Database()
+        except Exception as x:
+            logging.log(logging.ERROR, "Can't open DB: {}".format(x))
+            self.db = None
+
         self.updater = Updater(token=arturo_conf.TG_TOKEN, use_context=True)
         logging.basicConfig(format="%(asctime)s - %(name)s - %(levelname)s - %(message)s", level=logging.INFO)
 
@@ -26,8 +34,35 @@ class Arturo:
         self.dispatcher.add_handler(telegram.ext.CommandHandler('timeline', self.timeline))
         self.dispatcher.add_handler(telegram.ext.CommandHandler('get', self.cmd_get))
         self.dispatcher.add_handler(telegram.ext.CommandHandler('follow', self.cmd_follow))
+        self.dispatcher.add_error_handler(self.error_handler)
 
         self.twitter_avail = False
+
+    def error_handler(self,update: object, context: telegram.ext.CallbackContext) -> None:
+        logging.error(msg="Exception while handling an update:", exc_info=context.error)
+
+        # traceback.format_exception returns the usual python message about an exception, but as a
+        # list of strings rather than a single string, so we have to join them together.
+        tb_list = traceback.format_exception(None, context.error, context.error.__traceback__)
+        tb_string = ''.join(tb_list)
+
+        # Build the message with some markup and additional information about what happened.
+        # You might need to add some logic to deal with messages longer than the 4096 character limit.
+        # update_str = update.to_dict() if isinstance(update, telegram.Update) else str(update)
+        message = (f'An exception was raised while handling an update\nCheck logs for details.')
+
+        # Finally, send the message
+        context.bot.send_message(chat_id=update.effective_chat.id, text=message)
+
+    def _authenticate_user(self, update: telegram.Update) -> bool:
+        if self.db.check_user(update.effective_user.id):
+            return True
+        return False
+
+    def _check_user(self, update:telegram.Update):
+        if not self._authenticate_user(update):
+            raise Exception("User {} is not Authenticated".format(update.effective_user.id))
+
 
     def _check_twitter(self,update : telegram.Update, context : telegram.ext.CallbackContext):
         if not self.twitter_avail or self.twitter is None:
@@ -38,9 +73,13 @@ class Arturo:
         return True
 
     def start(self,update : telegram.Update, context : telegram.ext.CallbackContext):
+        if not self._authenticate_user(update):
+            context.bot.send_message(chat_id=update.effective_chat.id, text="User {} is not authenticated".format(update.effective_user.id))
+            return
         context.bot.send_message(chat_id=update.effective_chat.id, text="Ciao sono Arturito, in che modo posso aiutarti?")
 
     def connect(self,update : telegram.Update, context : telegram.ext.CallbackContext):
+        self._check_user(update)
         self.twitter_auth = tweepy.OAuthHandler(arturo_conf.TWITTER_API_KEY, arturo_conf.TWITTER_SEC_KEY)
         self.twitter_auth.set_access_token(arturo_conf.TWITTER_USR_KEY, arturo_conf.TWITTER_USR_TOKEN)
         self.twitter = tweepy.API(self.twitter_auth)
@@ -53,6 +92,7 @@ class Arturo:
             context.bot.send_message(chat_id=update.effective_chat.id, text="Autenticazione su twitter fallita")
 
     def timeline(self,update : telegram.Update, context : telegram.ext.CallbackContext):
+        self._check_user(update)
         if not self._check_twitter(update, context):
             return
         tweets = self.twitter.home_timeline(count=5, tweet_mode="extended")
@@ -99,6 +139,7 @@ class Arturo:
         return None
 
     def cmd_get(self,update : telegram.Update, context : telegram.ext.CallbackContext):
+        self._check_user(update)
         if not self._check_twitter(update, context):
             return
         if len(context.args) !=1 :

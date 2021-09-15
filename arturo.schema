@@ -1,0 +1,9 @@
+
+create table Users
+(
+    id   int
+        constraint Users_pk
+            primary key,
+    nick TEXT
+);
+
